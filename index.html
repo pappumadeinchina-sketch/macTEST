@@ -3,88 +3,275 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Drishti Glasses Relay</title>
+    <title>Drishti AI - Smart Glasses Interface</title>
     <style>
-        body { font-family: -apple-system, sans-serif; background: #111; color: #fff; text-align: center; padding: 40px 20px; }
-        button { background: #007aff; color: white; border: none; padding: 20px 40px; font-size: 18px; border-radius: 30px; margin-top: 30px; width: 80%; }
-        button:disabled { background: #333; }
-        #status { font-size: 16px; margin-top: 20px; color: #888; }
-        #response { margin-top: 40px; font-size: 20px; color: #34c759; }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #090d16;
+            color: #f0f6fc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            background-color: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 20px;
+            padding: 32px 24px;
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 16px;
+            border-radius: 20px;
+            background-color: #21262d;
+            border: 1px solid #30363d;
+            font-size: 14px;
+            font-weight: 500;
+            color: #8b949e;
+            margin-bottom: 24px;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #8b949e;
+        }
+
+        .connected .dot {
+            background-color: #2ea043;
+            box-shadow: 0 0 8px #2ea043;
+        }
+
+        .connecting .dot {
+            background-color: #d29922;
+        }
+
+        .error .dot {
+            background-color: #f85149;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        p.subtitle {
+            color: #8b949e;
+            font-size: 14px;
+            margin-bottom: 32px;
+        }
+
+        .action-btn {
+            background-color: #238636;
+            color: #ffffff;
+            border: none;
+            padding: 16px 24px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            width: 100%;
+            cursor: pointer;
+            transition: background-color 0.2s ease, transform 0.1s ease;
+        }
+
+        .action-btn:hover {
+            background-color: #2ea043;
+        }
+
+        .action-btn:active {
+            transform: scale(0.98);
+        }
+
+        .action-btn:disabled {
+            background-color: #21262d;
+            color: #484f58;
+            cursor: not-allowed;
+        }
+
+        .log-box {
+            margin-top: 24px;
+            padding: 16px;
+            background-color: #0d1117;
+            border: 1px solid #21262d;
+            border-radius: 10px;
+            min-height: 80px;
+            text-align: left;
+            font-size: 14px;
+            color: #58a6ff;
+            word-break: break-word;
+        }
     </style>
 </head>
 <body>
-    <h1>👁️ Drishti Relay</h1>
-    <p>Connect your Bluetooth glasses to this phone before starting.</p>
-    
-    <button id="startBtn">Start Voice Mode</button>
-    <div id="status">Disconnected</div>
-    <div id="response"></div>
 
-    <script>
-        let ws;
-        let audioCtx;
-        let mediaStream;
-        let processor;
+<div class="container">
+    <div id="statusBadge" class="status-badge">
+        <span class="dot"></span>
+        <span id="statusText">Disconnected</span>
+    </div>
 
-        const startBtn = document.getElementById('startBtn');
-        const statusDiv = document.getElementById('status');
-        const responseDiv = document.getElementById('response');
+    <h1>👁️ Drishti Assistant</h1>
+    <p class="subtitle">Smart Glasses Audio Bridge</p>
 
-        startBtn.onclick = async () => {
-            startBtn.disabled = true;
-            statusDiv.innerText = "Connecting to Mac...";
+    <button id="startBtn" class="action-btn" onclick="startSession()">Start Hands-Free Session</button>
 
-            // Replace YOUR_MAC_IP with your Mac's local network IP
-            const macIP = prompt("Enter your Mac's IP address (shown in Mac terminal):");
-            if (!macIP) return;
+    <div class="log-box" id="logBox">
+        Tap the button above to begin streaming audio to your backend.
+    </div>
+</div>
 
-            ws = new WebSocket(`ws://${macIP}:8765`);
-            ws.binaryType = 'arraybuffer';
+<script>
+    // Configured for your Render app
+    const RENDER_WS_URL = "wss://mactest-hvrc.onrender.com";
+
+    let ws = null;
+    let audioCtx = null;
+    let mediaStream = null;
+    let processor = null;
+
+    async function startSession() {
+        const startBtn = document.getElementById("startBtn");
+        const logBox = document.getElementById("logBox");
+
+        startBtn.disabled = true;
+        updateStatus("connecting", "Connecting to Cloud...");
+
+        try {
+            // 1. Initialize WebSocket Connection
+            ws = new WebSocket(RENDER_WS_URL);
+            ws.binaryType = "arraybuffer";
 
             ws.onopen = async () => {
-                statusDiv.innerText = "🟢 Connected to Mac! Streaming Mic...";
-                await startAudioStream();
+                updateStatus("connected", "🟢 Live & Listening");
+                logBox.innerText = "System ready. Speak through your Bluetooth smart glasses.";
+                startBtn.innerText = "Session Active";
+                
+                // 2. Access microphone & Web Audio API
+                await initAudioPipeline();
             };
 
             ws.onmessage = async (event) => {
-                if (typeof event.data === 'string') {
-                    const data = JSON.parse(event.data);
-                    responseDiv.innerText = "🤖 " + data.text;
-                } else {
-                    // Binary audio response (MP3) from TTS
-                    const audioBlob = new Blob([event.data], { type: 'audio/mp3' });
-                    const audioUrl = URL.createObjectURL(audioBlob);
-                    const audio = new Audio(audioUrl);
-                    audio.play();
+                if (typeof event.data === "string") {
+                    const payload = JSON.parse(event.data);
+                    if (payload.type === "text") {
+                        logBox.innerText = "🤖 Drishti: " + payload.text;
+                    }
+                } else if (event.data instanceof ArrayBuffer) {
+                    // Playback incoming MP3 binary audio payload from Edge-TTS
+                    await playAudioResponse(event.data);
                 }
+            };
+
+            ws.onerror = (error) => {
+                console.error("WebSocket Error:", error);
+                updateStatus("error", "❌ Connection Error");
+                logBox.innerText = "Error connecting to cloud backend.";
+                resetUI();
             };
 
             ws.onclose = () => {
-                statusDiv.innerText = "🔴 Disconnected from Mac";
-                startBtn.disabled = false;
+                updateStatus("", "Disconnected");
+                logBox.innerText = "Session closed.";
+                resetUI();
             };
-        };
 
-        async function startAudioStream() {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-            mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            const source = audioCtx.createMediaStreamSource(mediaStream);
-
-            processor = audioCtx.createScriptProcessor(512, 1, 1);
-            source.connect(processor);
-            processor.connect(audioCtx.destination);
-
-            processor.onaudioprocess = (e) => {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    const inputData = e.inputBuffer.getChannelData(0);
-                    const pcm16 = new Int16Array(inputData.length);
-                    for (let i = 0; i < inputData.length; i++) {
-                        pcm16[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7FFF;
-                    }
-                    ws.send(pcm16.buffer);
-                }
-            };
+        } catch (err) {
+            console.error("Initialization error:", err);
+            logBox.innerText = "Error: " + err.message;
+            resetUI();
         }
-    </script>
+    }
+
+    async function initAudioPipeline() {
+        // Initialize AudioContext at 16kHz to match Silero VAD requirement
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        
+        // Mobile browsers require resume on user gesture
+        if (audioCtx.state === "suspended") {
+            await audioCtx.resume();
+        }
+
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                channelCount: 1,
+                sampleRate: 16000,
+                echoCancellation: true,
+                noiseSuppression: true
+            },
+            video: false
+        });
+
+        const source = audioCtx.createMediaStreamSource(mediaStream);
+        
+        // 512 samples per buffer (32ms frames @ 16kHz)
+        processor = audioCtx.createScriptProcessor(512, 1, 1);
+        source.connect(processor);
+        processor.connect(audioCtx.destination);
+
+        processor.onaudioprocess = (e) => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const inputFloat32 = e.inputBuffer.getChannelData(0);
+                
+                // Convert Float32 (-1.0 to 1.0) to Int16 PCM ArrayBuffer
+                const pcm16 = new Int16Array(inputFloat32.length);
+                for (let i = 0; i < inputFloat32.length; i++) {
+                    const s = Math.max(-1, Math.min(1, inputFloat32[i]));
+                    pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                }
+                
+                ws.send(pcm16.buffer);
+            }
+        };
+    }
+
+    async function playAudioResponse(arrayBuffer) {
+        if (!audioCtx) return;
+        try {
+            const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+            const source = audioCtx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioCtx.destination);
+            source.start(0);
+        } catch (e) {
+            console.error("Audio playback error:", e);
+        }
+    }
+
+    function updateStatus(stateClass, text) {
+        const badge = document.getElementById("statusBadge");
+        const statusText = document.getElementById("statusText");
+        badge.className = "status-badge " + stateClass;
+        statusText.innerText = text;
+    }
+
+    function resetUI() {
+        const startBtn = document.getElementById("startBtn");
+        startBtn.disabled = false;
+        startBtn.innerText = "Reconnect Session";
+        
+        if (mediaStream) {
+            mediaStream.getTracks().forEach(track => track.stop());
+        }
+    }
+</script>
+
 </body>
 </html>
