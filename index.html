@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drishti Glasses Relay</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #111; color: #fff; text-align: center; padding: 40px 20px; }
+        button { background: #007aff; color: white; border: none; padding: 20px 40px; font-size: 18px; border-radius: 30px; margin-top: 30px; width: 80%; }
+        button:disabled { background: #333; }
+        #status { font-size: 16px; margin-top: 20px; color: #888; }
+        #response { margin-top: 40px; font-size: 20px; color: #34c759; }
+    </style>
+</head>
+<body>
+    <h1>👁️ Drishti Relay</h1>
+    <p>Connect your Bluetooth glasses to this phone before starting.</p>
+    
+    <button id="startBtn">Start Voice Mode</button>
+    <div id="status">Disconnected</div>
+    <div id="response"></div>
+
+    <script>
+        let ws;
+        let audioCtx;
+        let mediaStream;
+        let processor;
+
+        const startBtn = document.getElementById('startBtn');
+        const statusDiv = document.getElementById('status');
+        const responseDiv = document.getElementById('response');
+
+        startBtn.onclick = async () => {
+            startBtn.disabled = true;
+            statusDiv.innerText = "Connecting to Mac...";
+
+            // Replace YOUR_MAC_IP with your Mac's local network IP
+            const macIP = prompt("Enter your Mac's IP address (shown in Mac terminal):");
+            if (!macIP) return;
+
+            ws = new WebSocket(`ws://${macIP}:8765`);
+            ws.binaryType = 'arraybuffer';
+
+            ws.onopen = async () => {
+                statusDiv.innerText = "🟢 Connected to Mac! Streaming Mic...";
+                await startAudioStream();
+            };
+
+            ws.onmessage = async (event) => {
+                if (typeof event.data === 'string') {
+                    const data = JSON.parse(event.data);
+                    responseDiv.innerText = "🤖 " + data.text;
+                } else {
+                    // Binary audio response (MP3) from TTS
+                    const audioBlob = new Blob([event.data], { type: 'audio/mp3' });
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    const audio = new Audio(audioUrl);
+                    audio.play();
+                }
+            };
+
+            ws.onclose = () => {
+                statusDiv.innerText = "🔴 Disconnected from Mac";
+                startBtn.disabled = false;
+            };
+        };
+
+        async function startAudioStream() {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            const source = audioCtx.createMediaStreamSource(mediaStream);
+
+            processor = audioCtx.createScriptProcessor(512, 1, 1);
+            source.connect(processor);
+            processor.connect(audioCtx.destination);
+
+            processor.onaudioprocess = (e) => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    const inputData = e.inputBuffer.getChannelData(0);
+                    const pcm16 = new Int16Array(inputData.length);
+                    for (let i = 0; i < inputData.length; i++) {
+                        pcm16[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7FFF;
+                    }
+                    ws.send(pcm16.buffer);
+                }
+            };
+        }
+    </script>
+</body>
+</html>
